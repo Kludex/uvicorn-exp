@@ -1,3 +1,4 @@
+Copyright © 2022, Marcelo Trylesinski
 Copyright © 2017-present, [Encode OSS Ltd](https://www.encode.io/).
 All rights reserved.
 
