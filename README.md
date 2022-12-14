@@ -62,7 +62,7 @@ async def app(scope, receive, send):
         'type': 'http.response.start',
         'status': 200,
         'headers': [
-            [b'content-type', b'text/plain'],
+            (b'content-type', b'text/plain'),
         ],
     })
     await send({
@@ -136,6 +136,6 @@ $ hypercorn app:App
 
 [asgi]: https://asgi.readthedocs.io/en/latest/
 [daphne]: https://github.com/django/daphne
-[hypercorn]: https://gitlab.com/pgjones/hypercorn
+[hypercorn]: https://github.com/pgjones/hypercorn
 [mangum]: https://mangum.io
 [trio]: https://trio.readthedocs.io
