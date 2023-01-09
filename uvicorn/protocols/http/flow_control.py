@@ -57,6 +57,7 @@ async def service_unavailable(
             (b"content-type", b"text/plain; charset=utf-8"),
             (b"connection", b"close"),
         ],
+        "trailers": False,
     }
     await send(response_start)
 

@@ -37,11 +37,11 @@ if TYPE_CHECKING:
         ASGI3Application,
         ASGIReceiveEvent,
         ASGISendEvent,
-        HTTPResponseTrailersEvent,
         HTTPDisconnectEvent,
         HTTPRequestEvent,
         HTTPResponseBodyEvent,
         HTTPResponseStartEvent,
+        HTTPResponseTrailersEvent,
         HTTPScope,
     )
 
@@ -461,6 +461,7 @@ class RequestResponseCycle:
                 (b"content-type", b"text/plain; charset=utf-8"),
                 (b"connection", b"close"),
             ],
+            "trailers": False,
         }
         await self.send(response_start_event)
         response_body_event: "HTTPResponseBodyEvent" = {

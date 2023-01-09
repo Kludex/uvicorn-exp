@@ -1,7 +1,6 @@
 import asyncio
 import http
 import logging
-import sys
 from typing import TYPE_CHECKING, Callable, List, Optional, Tuple, Union, cast
 from urllib.parse import unquote
 
@@ -24,21 +23,16 @@ from uvicorn.protocols.utils import (
 )
 from uvicorn.server import ServerState
 
-if sys.version_info < (3, 8):  # pragma: py-gte-38
-    from typing_extensions import Literal
-else:  # pragma: py-lt-38
-    from typing import Literal
-
 if TYPE_CHECKING:
     from asgiref.typing import (
         ASGI3Application,
         ASGIReceiveEvent,
         ASGISendEvent,
         HTTPDisconnectEvent,
-        HTTPResponseTrailersEvent,
         HTTPRequestEvent,
         HTTPResponseBodyEvent,
         HTTPResponseStartEvent,
+        HTTPResponseTrailersEvent,
         HTTPScope,
     )
 
@@ -99,7 +93,6 @@ class H11Protocol(asyncio.Protocol):
         self.flow: FlowControl = None  # type: ignore[assignment]
         self.server: Optional[Tuple[str, int]] = None
         self.client: Optional[Tuple[str, int]] = None
-        self.scheme: Optional[Literal["http", "https"]] = None
 
         # Per-request state
         self.scope: HTTPScope = None  # type: ignore[assignment]
@@ -410,7 +403,7 @@ class RequestResponseCycle:
         self.body = b""
         self.more_body = True
         self.send_trailers = False
-        self.trailers = []
+        self.trailers: List[Tuple[bytes, bytes]] = []
 
         # Response state
         self.response_started = False
@@ -453,6 +446,7 @@ class RequestResponseCycle:
                 (b"content-type", b"text/plain; charset=utf-8"),
                 (b"connection", b"close"),
             ],
+            "trailers": False,
         }
         await self.send(response_start_event)
         response_body_event: "HTTPResponseBodyEvent" = {
