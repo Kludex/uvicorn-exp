@@ -167,6 +167,7 @@ class WSGIResponder:
                 "type": "http.response.start",
                 "status": status_code,
                 "headers": headers,
+                "trailers": False,
             }
             self.send_queue.append(http_response_start_event)
             self.loop.call_soon_threadsafe(self.send_event.set)
