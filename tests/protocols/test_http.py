@@ -1014,7 +1014,7 @@ async def test_iterator_headers(protocol_cls):
         },
     ],
 )
-@pytest.mark.parametrize("protocol_cls", [HttpToolsProtocol])
+@pytest.mark.parametrize("protocol_cls", HTTP_PROTOCOLS)
 async def test_request_with_trailers(http_response_start, protocol_cls) -> None:
     async def app(scope, receive, send) -> None:
         await send(http_response_start)
@@ -1038,7 +1038,7 @@ async def test_request_with_trailers(http_response_start, protocol_cls) -> None:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("protocol_cls", [HttpToolsProtocol])
+@pytest.mark.parametrize("protocol_cls", HTTP_PROTOCOLS)
 async def test_request_without_te_headers(protocol_cls):
     async def app(scope, receive, send) -> None:
         await send(
@@ -1072,7 +1072,7 @@ async def test_request_without_te_headers(protocol_cls):
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("protocol_cls", [HttpToolsProtocol])
+@pytest.mark.parametrize("protocol_cls", HTTP_PROTOCOLS)
 async def test_multiple_trailers(protocol_cls):
     async def app(scope, receive, send) -> None:
         await send(
@@ -1115,7 +1115,7 @@ async def test_multiple_trailers(protocol_cls):
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("protocol_cls", [HttpToolsProtocol])
+@pytest.mark.parametrize("protocol_cls", HTTP_PROTOCOLS)
 async def test_trailer_before_body_complete(protocol_cls):
     async def app(scope, receive, send):
         await send({"type": "http.response.start", "status": 200, "trailers": True})
@@ -1136,7 +1136,7 @@ async def test_trailer_before_body_complete(protocol_cls):
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("protocol_cls", [HttpToolsProtocol])
+@pytest.mark.parametrize("protocol_cls", HTTP_PROTOCOLS)
 async def test_head_request_with_trailers(protocol_cls):
     async def app(scope, receive, send) -> None:
         await send(

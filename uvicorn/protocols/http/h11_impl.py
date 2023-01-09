@@ -35,6 +35,7 @@ if TYPE_CHECKING:
         ASGIReceiveEvent,
         ASGISendEvent,
         HTTPDisconnectEvent,
+        HTTPResponseTrailersEvent,
         HTTPRequestEvent,
         HTTPResponseBodyEvent,
         HTTPResponseStartEvent,
@@ -154,6 +155,13 @@ class H11Protocol(asyncio.Protocol):
             self.timeout_keep_alive_task.cancel()
             self.timeout_keep_alive_task = None
 
+    def _expect_trailers(self) -> bool:
+        te = []
+        for name, value in self.headers:
+            if name == b"te":
+                te = [token.lower().strip() for token in value.split(b",")]
+        return b"trailers" in te
+
     def _get_upgrade(self) -> Optional[bytes]:
         connection = []
         upgrade = None
@@ -207,7 +215,7 @@ class H11Protocol(asyncio.Protocol):
             elif event_type is h11.Request:
                 self.headers = [(key.lower(), value) for key, value in event.headers]
                 raw_path, _, query_string = event.target.partition(b"?")
-                self.scope = {  # type: ignore[typeddict-item]
+                self.scope = {
                     "type": "http",
                     "asgi": {
                         "version": self.config.asgi_version,
@@ -223,7 +231,9 @@ class H11Protocol(asyncio.Protocol):
                     "raw_path": raw_path,
                     "query_string": query_string,
                     "headers": self.headers,
+                    "extensions": {"http.response.trailers": {}},
                 }
+                expect_trailers = self._expect_trailers()
 
                 upgrade = self._get_upgrade()
                 if upgrade == b"websocket" and self._should_upgrade_to_ws():
@@ -250,6 +260,7 @@ class H11Protocol(asyncio.Protocol):
                     access_logger=self.access_logger,
                     access_log=self.access_log,
                     default_headers=self.server_state.default_headers,
+                    expect_trailers=expect_trailers,
                     message_event=asyncio.Event(),
                     on_response=self.on_response_complete,
                 )
@@ -374,6 +385,7 @@ class RequestResponseCycle:
         access_logger: logging.Logger,
         access_log: bool,
         default_headers: List[Tuple[bytes, bytes]],
+        expect_trailers: bool,
         message_event: asyncio.Event,
         on_response: Callable[..., None],
     ) -> None:
@@ -385,6 +397,7 @@ class RequestResponseCycle:
         self.access_logger = access_logger
         self.access_log = access_log
         self.default_headers = default_headers
+        self.expect_trailers = expect_trailers
         self.message_event = message_event
         self.on_response = on_response
 
@@ -396,6 +409,8 @@ class RequestResponseCycle:
         # Request state
         self.body = b""
         self.more_body = True
+        self.send_trailers = False
+        self.trailers = []
 
         # Response state
         self.response_started = False
@@ -470,6 +485,10 @@ class RequestResponseCycle:
             status_code = message["status"]
             headers = self.default_headers + list(message.get("headers", []))
 
+            self.send_trailers = (
+                message.get("trailers", False) and self.scope["method"] != "HEAD"
+            )
+
             if CLOSE_HEADER in self.scope["headers"] and CLOSE_HEADER not in headers:
                 headers = headers + [CLOSE_HEADER]
 
@@ -513,7 +532,30 @@ class RequestResponseCycle:
             if not more_body:
                 self.response_complete = True
                 self.message_event.set()
-                event = h11.EndOfMessage()
+
+                if not self.send_trailers:
+                    event = h11.EndOfMessage()
+                    output = self.conn.send(event)
+                    self.transport.write(output)
+
+        elif self.send_trailers:
+            if message_type != "http.response.trailers":
+                msg = "Expected ASGI message 'http.response.trailers', but got '%s'."
+                raise RuntimeError(msg % message_type)
+            message = cast("HTTPResponseTrailersEvent", message)
+
+            print(message)
+            trailers = list(message.get("headers", []))
+            more_trailers = message.get("more_trailers", False)
+
+            # Since EndOfMessage can only be sent once, we need to buffer the trailers
+            # until we know that there are no more.
+            self.trailers.extend(trailers)
+
+            if not more_trailers:
+                self.send_trailers = False
+                headers = self.trailers if self.expect_trailers else []
+                event = h11.EndOfMessage(headers=headers)
                 output = self.conn.send(event)
                 self.transport.write(output)
 
