@@ -2,6 +2,7 @@
 
 # Type annotation
 asgiref==3.6.0
+asgi-types
 
 # Explicit optionals
 wsproto==1.2.0
