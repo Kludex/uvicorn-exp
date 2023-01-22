@@ -2,16 +2,18 @@
 
 # Type annotation
 asgiref==3.6.0
+asgi-types
 
 # Explicit optionals
+a2wsgi==1.6.0
 wsproto==1.2.0
+httparse==0.2.1
 
 # Packaging
 build==0.9.0
 twine==4.0.1
 
 # Testing
-a2wsgi==1.6.0
 autoflake==1.7.7
 black==22.10.0
 flake8==3.9.2
