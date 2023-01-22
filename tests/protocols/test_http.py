@@ -16,8 +16,15 @@ try:
 except ImportError:  # pragma: nocover
     HttpToolsProtocol = None
 
+try:
+    from uvicorn.protocols.http.httparse_impl import HttparseProtocol
+except ImportError:  # pragma: nocover
+    HttparseProtocol = None
 
-HTTP_PROTOCOLS = [p for p in [H11Protocol, HttpToolsProtocol] if p is not None]
+
+HTTP_PROTOCOLS = [
+    p for p in [H11Protocol, HttpToolsProtocol, HttparseProtocol] if p is not None
+]
 WEBSOCKET_PROTOCOLS = WS_PROTOCOLS.keys()
 
 SIMPLE_GET_REQUEST = b"\r\n".join([b"GET / HTTP/1.1", b"Host: example.org", b"", b""])
@@ -209,6 +216,7 @@ async def test_get_request(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_GET_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert b"HTTP/1.1 200 OK" in protocol.transport.buffer
     assert b"Hello, world" in protocol.transport.buffer
@@ -228,6 +236,7 @@ async def test_request_logging(path, protocol_cls, caplog):
 
     protocol = get_connected_protocol(app, protocol_cls, log_config=None)
     protocol.data_received(get_request_with_query_string)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert '"GET {} HTTP/1.1" 200'.format(path) in caplog.records[0].message
 
@@ -239,6 +248,7 @@ async def test_head_request(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_HEAD_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert b"HTTP/1.1 200 OK" in protocol.transport.buffer
     assert b"Hello, world" not in protocol.transport.buffer
@@ -259,6 +269,7 @@ async def test_post_request(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_POST_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert b"HTTP/1.1 200 OK" in protocol.transport.buffer
     assert b'Body: {"hello": "world"}' in protocol.transport.buffer
@@ -271,6 +282,7 @@ async def test_keepalive(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_GET_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
 
     assert b"HTTP/1.1 204 No Content" in protocol.transport.buffer
@@ -284,6 +296,7 @@ async def test_keepalive_timeout(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_GET_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert b"HTTP/1.1 204 No Content" in protocol.transport.buffer
     assert not protocol.transport.is_closing()
@@ -300,6 +313,7 @@ async def test_close(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_GET_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert b"HTTP/1.1 204 No Content" in protocol.transport.buffer
     assert protocol.transport.is_closing()
@@ -314,6 +328,7 @@ async def test_chunked_encoding(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_GET_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert b"HTTP/1.1 200 OK" in protocol.transport.buffer
     assert b"0\r\n\r\n" in protocol.transport.buffer
@@ -329,6 +344,7 @@ async def test_chunked_encoding_empty_body(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_GET_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert b"HTTP/1.1 200 OK" in protocol.transport.buffer
     assert protocol.transport.buffer.count(b"0\r\n\r\n") == 1
@@ -344,6 +360,7 @@ async def test_chunked_encoding_head_request(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_HEAD_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert b"HTTP/1.1 200 OK" in protocol.transport.buffer
     assert not protocol.transport.is_closing()
@@ -356,8 +373,11 @@ async def test_pipelined_requests(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_GET_REQUEST)
+    protocol.eof_received()
     protocol.data_received(SIMPLE_GET_REQUEST)
+    protocol.eof_received()
     protocol.data_received(SIMPLE_GET_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert b"HTTP/1.1 200 OK" in protocol.transport.buffer
     assert b"Hello, world" in protocol.transport.buffer
@@ -379,6 +399,7 @@ async def test_undersized_request(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_GET_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert protocol.transport.is_closing()
 
@@ -390,6 +411,7 @@ async def test_oversized_request(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_GET_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert protocol.transport.is_closing()
 
@@ -401,6 +423,7 @@ async def test_large_post_request(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(LARGE_POST_REQUEST)
+    protocol.eof_received()
     assert protocol.transport.read_paused
     await protocol.loop.run_one()
     assert not protocol.transport.read_paused
@@ -413,6 +436,7 @@ async def test_invalid_http(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(b"x" * 100000)
+    protocol.eof_received()
     assert protocol.transport.is_closing()
 
 
@@ -424,6 +448,7 @@ async def test_app_exception(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_GET_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert b"HTTP/1.1 500 Internal Server Error" in protocol.transport.buffer
     assert protocol.transport.is_closing()
@@ -439,6 +464,7 @@ async def test_exception_during_response(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_GET_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert b"HTTP/1.1 500 Internal Server Error" not in protocol.transport.buffer
     assert protocol.transport.is_closing()
@@ -452,6 +478,7 @@ async def test_no_response_returned(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_GET_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert b"HTTP/1.1 500 Internal Server Error" in protocol.transport.buffer
     assert protocol.transport.is_closing()
@@ -465,6 +492,7 @@ async def test_partial_response_returned(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_GET_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert b"HTTP/1.1 500 Internal Server Error" not in protocol.transport.buffer
     assert protocol.transport.is_closing()
@@ -479,6 +507,7 @@ async def test_duplicate_start_message(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_GET_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert b"HTTP/1.1 500 Internal Server Error" not in protocol.transport.buffer
     assert protocol.transport.is_closing()
@@ -492,6 +521,7 @@ async def test_missing_start_message(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_GET_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert b"HTTP/1.1 500 Internal Server Error" in protocol.transport.buffer
     assert protocol.transport.is_closing()
@@ -507,6 +537,7 @@ async def test_message_after_body_complete(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_GET_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert b"HTTP/1.1 200 OK" in protocol.transport.buffer
     assert protocol.transport.is_closing()
@@ -522,6 +553,7 @@ async def test_value_returned(protocol_cls):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(SIMPLE_GET_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert b"HTTP/1.1 200 OK" in protocol.transport.buffer
     assert protocol.transport.is_closing()
@@ -691,6 +723,7 @@ async def test_100_continue_sent_when_body_consumed(protocol_cls):
         ]
     )
     protocol.data_received(EXPECT_100_REQUEST)
+    protocol.eof_received()
     await protocol.loop.run_one()
     assert b"HTTP/1.1 100 Continue" in protocol.transport.buffer
     assert b"HTTP/1.1 200 OK" in protocol.transport.buffer
@@ -825,6 +858,7 @@ async def test_invalid_http_request(request_line, protocol_cls, caplog):
 
     protocol = get_connected_protocol(app, protocol_cls)
     protocol.data_received(request)
+    protocol.eof_received()
     assert b"HTTP/1.1 400 Bad Request" in protocol.transport.buffer
     assert b"Invalid HTTP request received." in protocol.transport.buffer
 
@@ -1016,6 +1050,9 @@ async def test_iterator_headers(protocol_cls):
 )
 @pytest.mark.parametrize("protocol_cls", HTTP_PROTOCOLS)
 async def test_request_with_trailers(http_response_start, protocol_cls) -> None:
+    if protocol_cls is HttparseProtocol:
+        pytest.skip("HttparseProtocol does not support trailers")
+
     async def app(scope, receive, send) -> None:
         await send(http_response_start)
         await send(
@@ -1040,6 +1077,9 @@ async def test_request_with_trailers(http_response_start, protocol_cls) -> None:
 @pytest.mark.anyio
 @pytest.mark.parametrize("protocol_cls", HTTP_PROTOCOLS)
 async def test_request_without_te_headers(protocol_cls):
+    if protocol_cls is HttparseProtocol:
+        pytest.skip("HttparseProtocol does not support trailers")
+
     async def app(scope, receive, send) -> None:
         await send(
             {
@@ -1074,6 +1114,9 @@ async def test_request_without_te_headers(protocol_cls):
 @pytest.mark.anyio
 @pytest.mark.parametrize("protocol_cls", HTTP_PROTOCOLS)
 async def test_multiple_trailers(protocol_cls):
+    if protocol_cls is HttparseProtocol:
+        pytest.skip("HttparseProtocol does not support trailers")
+
     async def app(scope, receive, send) -> None:
         await send(
             {
@@ -1117,6 +1160,9 @@ async def test_multiple_trailers(protocol_cls):
 @pytest.mark.anyio
 @pytest.mark.parametrize("protocol_cls", HTTP_PROTOCOLS)
 async def test_trailer_before_body_complete(protocol_cls):
+    if protocol_cls is HttparseProtocol:
+        pytest.skip("HttparseProtocol does not support trailers")
+
     async def app(scope, receive, send):
         await send({"type": "http.response.start", "status": 200, "trailers": True})
         await send({"type": "http.response.body", "body": b"", "more_body": True})
@@ -1138,6 +1184,9 @@ async def test_trailer_before_body_complete(protocol_cls):
 @pytest.mark.anyio
 @pytest.mark.parametrize("protocol_cls", HTTP_PROTOCOLS)
 async def test_head_request_with_trailers(protocol_cls):
+    if protocol_cls is HttparseProtocol:
+        pytest.skip("HttparseProtocol does not support trailers")
+
     async def app(scope, receive, send) -> None:
         await send(
             {
@@ -1174,6 +1223,9 @@ async def test_head_request_with_trailers(protocol_cls):
 async def test_wrong_type_with_trailers(
     protocol_cls, caplog: pytest.LogCaptureFixture
 ) -> None:
+    if protocol_cls is HttparseProtocol:
+        pytest.skip("HttparseProtocol does not support trailers")
+
     async def app(scope, receive, send) -> None:
         await send(
             {
@@ -1203,3 +1255,21 @@ async def test_wrong_type_with_trailers(
     assert caplog.record_tuples == [
         ("uvicorn.error", 40, "Exception in ASGI application\n")
     ]
+
+
+# ==============================================================================
+# ================================ HTTParse ====================================
+# ==============================================================================
+
+
+@pytest.mark.anyio
+async def test_huge_headers_httparse():
+    app = Response("Hello, world", media_type="text/plain")
+
+    protocol = get_connected_protocol(app, HttparseProtocol)
+    protocol.data_received(GET_REQUEST_HUGE_HEADERS[0])
+    protocol.data_received(GET_REQUEST_HUGE_HEADERS[1])
+    protocol.eof_received()
+    await protocol.loop.run_one()
+    assert b"HTTP/1.1 200 OK" in protocol.transport.buffer
+    assert b"Hello, world" in protocol.transport.buffer
