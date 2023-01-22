@@ -113,6 +113,14 @@ GET_REQUEST_HUGE_HEADERS = [
     b"".join([b"x" * 32 * 1024 + b"\r\n", b"\r\n", b"\r\n"]),
 ]
 
+EXPECT_TRAILERS_REQUEST = b"\r\n".join(
+    [b"GET / HTTP/1.1", b"Host: example.org", b"TE: trailers", b"", b""]
+)
+
+EXPECT_TRAILERS_HEAD_REQUEST = b"\r\n".join(
+    [b"HEAD / HTTP/1.1", b"Host: example.org", b"TE: trailers", b"", b""]
+)
+
 
 class MockTransport:
     def __init__(self, sockname=None, peername=None, sslcontext=False):
@@ -980,3 +988,218 @@ async def test_iterator_headers(protocol_cls):
     protocol.data_received(SIMPLE_GET_REQUEST)
     await protocol.loop.run_one()
     assert b"x-test-header: test value" in protocol.transport.buffer
+
+
+# ==============================================================================
+# ============================== HTTP Trailers =================================
+# ==============================================================================
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "http_response_start",
+    [
+        {"type": "http.response.start", "status": 200, "headers": [], "trailers": True},
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"te", b"trailers")],
+            "trailers": True,
+        },
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"transfer-encoding", b"chunked"), (b"te", b"trailers")],
+            "trailers": True,
+        },
+    ],
+)
+@pytest.mark.parametrize("protocol_cls", HTTP_PROTOCOLS)
+async def test_request_with_trailers(http_response_start, protocol_cls) -> None:
+    async def app(scope, receive, send) -> None:
+        await send(http_response_start)
+        await send(
+            {"type": "http.response.body", "body": b"Hello, world!", "more_body": False}
+        )
+        await send(
+            {
+                "type": "http.response.trailers",
+                "headers": [(b"x-trailer-test", b"test")],
+                "more_trailers": False,
+            }
+        )
+
+    protocol = get_connected_protocol(app, protocol_cls)
+    protocol.data_received(EXPECT_TRAILERS_REQUEST)
+    await protocol.loop.run_one()
+    assert b"HTTP/1.1 200 OK" in protocol.transport.buffer
+    assert b"Hello, world" in protocol.transport.buffer
+    assert b"x-trailer-test: test" in protocol.transport.buffer
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("protocol_cls", HTTP_PROTOCOLS)
+async def test_request_without_te_headers(protocol_cls):
+    async def app(scope, receive, send) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"transfer-encoding", b"chunked"),
+                    (b"trailers", b"x-trailer-test"),
+                ],
+                "trailers": True,
+            }
+        )
+        await send(
+            {"type": "http.response.body", "body": b"Hello, world!", "more_body": False}
+        )
+        await send(
+            {
+                "type": "http.response.trailers",
+                "headers": [(b"x-trailer-test", b"test")],
+                "more_trailers": False,
+            }
+        )
+
+    protocol = get_connected_protocol(app, protocol_cls)
+    protocol.data_received(SIMPLE_GET_REQUEST)
+    await protocol.loop.run_one()
+    assert b"HTTP/1.1 200 OK" in protocol.transport.buffer
+    assert b"Hello, world" in protocol.transport.buffer
+    assert b"x-trailer-test: test" not in protocol.transport.buffer
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("protocol_cls", HTTP_PROTOCOLS)
+async def test_multiple_trailers(protocol_cls):
+    async def app(scope, receive, send) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"transfer-encoding", b"chunked"),
+                    (b"trailers", b"x-trailer-test"),
+                    (b"trailers", b"x-trailer-test2"),
+                ],
+                "trailers": True,
+            }
+        )
+        await send(
+            {"type": "http.response.body", "body": b"Hello, world!", "more_body": False}
+        )
+        await send(
+            {
+                "type": "http.response.trailers",
+                "headers": [(b"x-trailer-test", b"test")],
+                "more_trailers": True,
+            }
+        )
+        await send(
+            {
+                "type": "http.response.trailers",
+                "headers": [(b"x-trailer-test2", b"test2")],
+                "more_trailers": False,
+            }
+        )
+
+    protocol = get_connected_protocol(app, protocol_cls)
+    protocol.data_received(EXPECT_TRAILERS_REQUEST)
+    await protocol.loop.run_one()
+    assert b"HTTP/1.1 200 OK" in protocol.transport.buffer
+    assert b"Hello, world" in protocol.transport.buffer
+    assert b"x-trailer-test: test" in protocol.transport.buffer
+    assert b"x-trailer-test2: test2" in protocol.transport.buffer
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("protocol_cls", HTTP_PROTOCOLS)
+async def test_trailer_before_body_complete(protocol_cls):
+    async def app(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "trailers": True})
+        await send({"type": "http.response.body", "body": b"", "more_body": True})
+        await send(
+            {
+                "type": "http.response.trailers",
+                "trailers": [(b"x-trailer-test", b"test")],
+            }
+        )
+
+    protocol = get_connected_protocol(app, protocol_cls)
+    protocol.data_received(EXPECT_TRAILERS_REQUEST)
+    await protocol.loop.run_one()
+    assert b"HTTP/1.1 200 OK" in protocol.transport.buffer
+    assert b"x-trailer-test" not in protocol.transport.buffer
+    assert protocol.transport.is_closing()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("protocol_cls", HTTP_PROTOCOLS)
+async def test_head_request_with_trailers(protocol_cls):
+    async def app(scope, receive, send) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"transfer-encoding", b"chunked"),
+                    (b"trailers", b"x-trailer-test"),
+                ],
+                "trailers": True,
+            }
+        )
+        await send(
+            {"type": "http.response.body", "body": b"Hello, world!", "more_body": False}
+        )
+        await send(
+            {
+                "type": "http.response.trailers",
+                "headers": [(b"x-trailer-test", b"test")],
+                "more_trailers": False,
+            }
+        )
+
+    protocol = get_connected_protocol(app, protocol_cls)
+    protocol.data_received(EXPECT_TRAILERS_HEAD_REQUEST)
+    await protocol.loop.run_one()
+    assert b"HTTP/1.1 200 OK" in protocol.transport.buffer
+    assert b"Hello, world" not in protocol.transport.buffer
+    assert b"x-trailer-test: test" not in protocol.transport.buffer
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("protocol_cls", HTTP_PROTOCOLS)
+async def test_wrong_type_with_trailers(
+    protocol_cls, caplog: pytest.LogCaptureFixture
+) -> None:
+    async def app(scope, receive, send) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [],
+                "trailers": True,
+            }
+        )
+        await send(
+            {"type": "http.response.body", "body": b"Hello, world!", "more_body": False}
+        )
+        await send(
+            {
+                "type": "http.response.another",
+                "headers": [(b"x-trailer-test", b"test")],
+                "more_trailers": False,
+            }
+        )
+
+    protocol = get_connected_protocol(app, protocol_cls)
+    protocol.data_received(EXPECT_TRAILERS_REQUEST)
+    await protocol.loop.run_one()
+    assert b"HTTP/1.1 200 OK" in protocol.transport.buffer
+    assert b"Hello, world" in protocol.transport.buffer
+    assert protocol.transport.closed is True
+    assert caplog.record_tuples == [
+        ("uvicorn.error", 40, "Exception in ASGI application\n")
+    ]
