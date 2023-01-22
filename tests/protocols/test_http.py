@@ -1167,3 +1167,39 @@ async def test_head_request_with_trailers(protocol_cls):
     assert b"HTTP/1.1 200 OK" in protocol.transport.buffer
     assert b"Hello, world" not in protocol.transport.buffer
     assert b"x-trailer-test: test" not in protocol.transport.buffer
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("protocol_cls", HTTP_PROTOCOLS)
+async def test_wrong_type_with_trailers(
+    protocol_cls, caplog: pytest.LogCaptureFixture
+) -> None:
+    async def app(scope, receive, send) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [],
+                "trailers": True,
+            }
+        )
+        await send(
+            {"type": "http.response.body", "body": b"Hello, world!", "more_body": False}
+        )
+        await send(
+            {
+                "type": "http.response.another",
+                "headers": [(b"x-trailer-test", b"test")],
+                "more_trailers": False,
+            }
+        )
+
+    protocol = get_connected_protocol(app, protocol_cls)
+    protocol.data_received(EXPECT_TRAILERS_REQUEST)
+    await protocol.loop.run_one()
+    assert b"HTTP/1.1 200 OK" in protocol.transport.buffer
+    assert b"Hello, world" in protocol.transport.buffer
+    assert protocol.transport.closed is True
+    assert caplog.record_tuples == [
+        ("uvicorn.error", 40, "Exception in ASGI application\n")
+    ]
