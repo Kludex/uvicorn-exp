@@ -1,7 +1,17 @@
 import asyncio
 import http
 import logging
-from typing import TYPE_CHECKING, Callable, List, Optional, Tuple, Union, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+)
 from urllib.parse import unquote
 
 import h11
@@ -37,6 +47,7 @@ if TYPE_CHECKING:
         HTTPScope,
     )
 
+
 H11Event = Union[
     h11.Request,
     h11.InformationalResponse,
@@ -64,6 +75,7 @@ class H11Protocol(asyncio.Protocol):
         self,
         config: Config,
         server_state: ServerState,
+        app_state: Dict[str, Any],
         _loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> None:
         if not config.loaded:
@@ -84,6 +96,7 @@ class H11Protocol(asyncio.Protocol):
         self.ws_protocol_class = config.ws_protocol_class
         self.root_path = config.root_path
         self.limit_concurrency = config.limit_concurrency
+        self.app_state = app_state
 
         # Timeouts
         self.timeout_keep_alive_task: Optional[asyncio.TimerHandle] = None
@@ -231,6 +244,7 @@ class H11Protocol(asyncio.Protocol):
                     "query_string": query_string,
                     "headers": self.headers,
                     "extensions": {"http.response.trailers": {}},
+                    "state": self.app_state.copy(),
                 }
                 expect_trailers = self._expect_trailers()
 
@@ -294,7 +308,9 @@ class H11Protocol(asyncio.Protocol):
             output += [name, b": ", value, b"\r\n"]
         output.append(b"\r\n")
         protocol = self.ws_protocol_class(  # type: ignore[call-arg, misc]
-            config=self.config, server_state=self.server_state
+            config=self.config,
+            server_state=self.server_state,
+            app_state=self.app_state,
         )
         protocol.connection_made(self.transport)
         protocol.data_received(b"".join(output))

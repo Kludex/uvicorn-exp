@@ -6,7 +6,18 @@ import sys
 import urllib
 from asyncio.events import TimerHandle
 from collections import deque
-from typing import TYPE_CHECKING, Callable, Deque, List, Optional, Tuple, Union, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Deque,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+)
 
 import httptools
 
@@ -45,6 +56,7 @@ if TYPE_CHECKING:
         HTTPScope,
     )
 
+
 HEADER_RE = re.compile(b'[\x00-\x1F\x7F()<>@,;:[]={} \t\\"]')
 HEADER_VALUE_RE = re.compile(b"[\x00-\x1F\x7F]")
 
@@ -67,6 +79,7 @@ class HttpToolsProtocol(asyncio.Protocol):
         self,
         config: Config,
         server_state: ServerState,
+        app_state: Dict[str, Any],
         _loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> None:
         if not config.loaded:
@@ -82,6 +95,7 @@ class HttpToolsProtocol(asyncio.Protocol):
         self.ws_protocol_class = config.ws_protocol_class
         self.root_path = config.root_path
         self.limit_concurrency = config.limit_concurrency
+        self.app_state = app_state
 
         # Timeouts
         self.timeout_keep_alive_task: Optional[TimerHandle] = None
@@ -203,7 +217,9 @@ class HttpToolsProtocol(asyncio.Protocol):
             output += [name, b": ", value, b"\r\n"]
         output.append(b"\r\n")
         protocol = self.ws_protocol_class(  # type: ignore[call-arg, misc]
-            config=self.config, server_state=self.server_state
+            config=self.config,
+            server_state=self.server_state,
+            app_state=self.app_state,
         )
         protocol.connection_made(self.transport)
         protocol.data_received(b"".join(output))
@@ -240,6 +256,7 @@ class HttpToolsProtocol(asyncio.Protocol):
             "root_path": self.root_path,
             "headers": self.headers,
             "extensions": {"http.response.trailers": {}},
+            "state": self.app_state.copy(),
         }
 
     # Parser callbacks
